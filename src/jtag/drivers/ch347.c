@@ -1598,15 +1598,40 @@ static int ch347_adapter_set_speed(uint8_t clock_index)
 }
 
 /**
+ * @brief swd init function
+ *
+ * @return ERROR_OK on success
+ */
+static int ch347_swd_init_cmd(uint8_t clock_divisor)
+{
+	int retval = ch347_cmd_start_next(CH347_CMD_SWD_INIT);
+	if (retval != ERROR_OK)
+		return retval;
+
+	uint8_t cmd_data[] = {0x40, 0x42, 0x0f, 0x00, clock_divisor, 0x00, 0x00, 0x00 };
+	retval = ch347_scratchpad_add_bytes(cmd_data, ARRAY_SIZE(cmd_data));
+	if (retval != ERROR_OK)
+		return retval;
+
+	/* TODO: CH347_CMD_SWD_INIT reads one data byte.
+			But how can we decide if SWD init was successfully executed?
+			Return an error code if init was failed */
+	uint8_t init_result = 0;
+	retval = ch347_single_read_get_byte(0, &init_result);
+	LOG_DEBUG("SWD init result %02" PRIx8, init_result);
+	return retval;
+}
+
+/**
  * @brief Initializes the JTAG interface and set CH347 TCK frequency
  *
  * @param speed_index speed index for JTAG_INIT command
- * @return Success returns ERROR_OK，failed returns ERROR_FAIL
+ * @return Success returns ERROR_OK, failed returns ERROR_FAIL
  */
 static int ch347_speed_set(int speed_index)
 {
 	if (swd_mode)
-		return ERROR_OK;
+		return ch347_swd_init_cmd(speed_index);
 
 	int retval = ch347_adapter_set_speed(speed_index);
 	if (retval != ERROR_OK) {
@@ -1650,6 +1675,14 @@ static int ch347_init_pack_size(void)
  */
 static int ch347_speed_get(int speed_idx, int *khz)
 {
+	if (swd_mode) {
+		if (speed_idx)
+			*khz = (1000 + speed_idx / 2) / speed_idx;
+		else
+			*khz = 100;
+		return ERROR_OK;
+	}
+
 	int retval = ch347_init_pack_size();
 	if (retval != ERROR_OK)
 		return retval;
@@ -1672,6 +1705,11 @@ static int ch347_speed_get_index(int khz, int *speed_idx)
 	if (khz == 0) {
 		LOG_ERROR("Adaptive clocking not supported");
 		return ERROR_FAIL;
+	}
+
+	if (swd_mode) {
+		*speed_idx = MIN(DIV_ROUND_UP(1000, khz), 20);
+		return ERROR_OK;
 	}
 
 	// when checking with speed index 9 we can see if the device supports STANDARD_PACK or LARGER_PACK mode
@@ -1805,29 +1843,6 @@ static const struct command_registration ch347_command_handlers[] = {
 };
 
 /**
- * @brief swd init function
- *
- * @return ERROR_OK on success
- */
-static int ch347_swd_init_cmd(void)
-{
-	int retval = ch347_cmd_start_next(CH347_CMD_SWD_INIT);
-	if (retval != ERROR_OK)
-		return retval;
-
-	uint8_t cmd_data[] = {0x40, 0x42, 0x0f, 0x00, 0x00, 0x00, 0x00, 0x00 };
-	retval = ch347_scratchpad_add_bytes(cmd_data, ARRAY_SIZE(cmd_data));
-	if (retval != ERROR_OK)
-		return retval;
-
-	/* TODO: CH347_CMD_SWD_INIT reads one data byte.
-			But how can we decide if SWD init was successfully executed?
-			Return an error code if init was failed */
-	uint8_t unused;
-	return ch347_single_read_get_byte(0, &unused);
-}
-
-/**
  * @brief CH347 Initialization function
  *
  * @return ERROR_OK on success
@@ -1861,7 +1876,7 @@ static int ch347_init(void)
 		if (retval != ERROR_OK)
 			return retval;
 
-		retval = ch347_swd_init_cmd();
+		retval = ch347_swd_init_cmd(0);
 	}
 
 	return retval;
