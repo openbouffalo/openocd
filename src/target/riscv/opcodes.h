@@ -71,6 +71,12 @@ static uint32_t jal(unsigned int rd, uint32_t imm)
 	return imm_j(imm) | inst_rd(rd) | MATCH_JAL;
 }
 
+static uint32_t jalr(unsigned int rd, unsigned int rs1, uint32_t imm) __attribute__ ((unused));
+static uint32_t jalr(unsigned int rd, unsigned int rs1, uint32_t imm)
+{
+	return imm_i(imm) | inst_rs1(rs1) | inst_rd(rd) | MATCH_JALR;
+}
+
 static uint32_t csrsi(unsigned int csr, uint16_t imm) __attribute__ ((unused));
 static uint32_t csrsi(unsigned int csr, uint16_t imm)
 {
