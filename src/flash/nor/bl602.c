@@ -74,7 +74,6 @@ static int bl602_call_func(struct target *target, uint32_t func_addr,
 	struct working_area *trampoline_algorithm;
 	
 	uint32_t trampoline_code[] = {
-		jalr(GDB_REGNO_RA, GDB_REGNO_T0, 0x0),
 		ebreak(),
 	};
 
@@ -110,15 +109,18 @@ static int bl602_call_func(struct target *target, uint32_t func_addr,
 		n_reg_params++;
 	}
 	// pass function pointer to t0
-	init_reg_param(&reg_params[n_reg_params], "t0", 32, PARAM_OUT);
-	buf_set_u32(reg_params[n_reg_params].value, 0, 32, func_addr);
+	// init_reg_param(&reg_params[n_reg_params], "pc", 32, PARAM_OUT);
+	// buf_set_u32(reg_params[n_reg_params].value, 0, 32, func_addr);
+	// n_reg_params++;
+	init_reg_param(&reg_params[n_reg_params], "ra", 32, PARAM_OUT);
+	buf_set_u32(reg_params[n_reg_params].value, 0, 32, trampoline_algorithm->address);
 	n_reg_params++;
 
 	retval = target_run_algorithm(target,
 			0, NULL,
 			n_reg_params, reg_params,
+			func_addr,
 			trampoline_algorithm->address,
-			trampoline_algorithm->address + sizeof(trampoline_code) - 4,
 			timeout_ms, NULL);
 
 	if (retval != ERROR_OK) {
@@ -193,6 +195,22 @@ static int bl602_alloc_sflash_cfg(struct flash_bank *bank,
 	}
 	return retval;
 }
+
+// static bool bl602_flash_is_xip_enabled(struct flash_bank *bank)
+// {
+// 	// XIP is enabled when L1C is enabled
+// 	int retval;
+// 	struct target *target = bank->target;
+// 	uint32_t l1c_config;
+
+// 	retval = target_read_u32(target, 0x40009000, &l1c_config);
+// 	if (retval != ERROR_OK) {
+// 		LOG_ERROR("Failed to read L1C configuration");
+// 		return retval;
+// 	}
+
+// 	return ((l1c_config >> 8) & 0xF) != 0;
+// }
 
 static int bl602_flash_init(struct flash_bank *bank)
 {
@@ -509,8 +527,6 @@ static int bl602_flash_probe(struct flash_bank *bank)
 		return ERROR_FAIL;
 	}
 
-	return ERROR_OK;
-
 	retval = bl602_flash_init(bank);
 	if (retval != ERROR_OK) {
 		LOG_ERROR("Initialization of flash failed.");
@@ -564,10 +580,16 @@ static int bl602_flash_probe(struct flash_bank *bank)
 
 static int bl602_flash_auto_probe(struct flash_bank *bank)
 {
+	int retval = ERROR_OK;
 	struct bl602_flash_bank *priv = bank->driver_priv;
 
 	if (priv->probed) {
-		return ERROR_OK;
+		// retval = bl602_flash_init(bank);
+		// if (retval != ERROR_OK) {
+		// 	LOG_ERROR("Initialization of flash failed.");
+		// 	return retval;
+		// }
+		return retval;
 	}
 
 	return bl602_flash_probe(bank);
@@ -641,6 +663,8 @@ COMMAND_HANDLER(bl602_test)
 	// struct bl602_flash_bank *bl602_info = bank->driver_priv;
 
 	retval = bl602_flash_init(bank);
+	if (retval != ERROR_OK)
+		return retval;
 
 	uint32_t jedec_id;
 	retval = bl602_flash_read_id(bank, &jedec_id);
