@@ -2392,6 +2392,15 @@ static int deassert_reset(struct target *target)
 	RISCV013_INFO(info);
 	select_dmi(target);
 
+	dm013_info_t *dm = get_dm(target);
+	if (!dm)
+		return ERROR_FAIL;
+
+	/* The DM might have gotten reset if OpenOCD called us in some reset that
+	 * involves SRST being toggled. So clear our cache which may be out of
+	 * date. */
+	memset(dm->progbuf_cache, 0, sizeof(dm->progbuf_cache));
+
 	/* Clear the reset, but make sure haltreq is still set */
 	uint32_t control = 0, control_haltreq;
 	control = set_field(control, DM_DMCONTROL_DMACTIVE, 1);
