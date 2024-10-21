@@ -21,6 +21,7 @@ NOR_DRIVERS = \
 	%D%/atsamv.c \
 	%D%/atsame5.c \
 	%D%/avrf.c \
+	%D%/bl602.c \
 	%D%/bluenrg-x.c \
 	%D%/cc3220sf.c \
 	%D%/cc26xx.c \
