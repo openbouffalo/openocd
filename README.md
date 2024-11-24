@@ -2,6 +2,12 @@
 
 This repository contains all OpenOCD patches, which are work in progress, or in process of upstreaming.
 
+# Binaries
+
+You can download latest Linux and Windows binaries in [Release page](https://github.com/openbouffalo/openocd/releases).
+
+The binaries are built by CI.
+
 # Matrix table
 
 - ✅ - Available in upstream OpenOCD
