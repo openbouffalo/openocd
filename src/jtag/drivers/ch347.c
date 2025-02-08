@@ -115,9 +115,10 @@
 #define CH347_CMD_SWD_REG_W	0xA0 // SWD Interface write reg
 #define CH347_CMD_SWD_SEQ_W	0xA1 // SWD Interface write spec seq
 #define CH347_CMD_SWD_REG_R	0xA2 // SWD Interface read  reg
-#define CH347_MAX_SEND_CMD	19 // max send cmd number
-#define CH347_MAX_SEND_BUF	0X200
-#define CH347_MAX_RECV_BUF	0X200
+#define CH347_MAX_PROCESSING_US 17000 // max time in us for packet processing
+			  // USB hosts disconnect the adapter if SWD processing takes more!
+#define CH347_MAX_SEND_BUF	USBC_PACKET_USBHS
+#define CH347_MAX_RECV_BUF	USBC_PACKET_USBHS
 #define CH347_MAX_CMD_BUF	128
 
 #define CH347_EPOUT	0x06u // the usb endpoint number for writing
@@ -236,6 +237,8 @@ struct ch347_swd_context {
 	int need_recv_len;
 	int queued_retval;
 	int sent_cmd_count;
+	int clk_divisor;
+	int total_swd_clk;
 	struct list_head send_cmd_head;
 	struct list_head free_cmd_head;
 	struct ch347_swd_io ch347_cmd_buf[CH347_MAX_CMD_BUF];
@@ -1619,6 +1622,7 @@ static int ch347_swd_init_cmd(uint8_t clock_divisor)
 	uint8_t init_result = 0;
 	retval = ch347_single_read_get_byte(0, &init_result);
 	LOG_DEBUG("SWD init result %02" PRIx8, init_result);
+	ch347_swd_context.clk_divisor = clock_divisor ? clock_divisor : 10;
 	return retval;
 }
 
@@ -1708,7 +1712,8 @@ static int ch347_speed_get_index(int khz, int *speed_idx)
 	}
 
 	if (swd_mode) {
-		*speed_idx = MIN(DIV_ROUND_UP(1000, khz), 20);
+		// Don't allow too low clk speeds: packet processing is limited to ~16 msec
+		*speed_idx = MIN(DIV_ROUND_UP(1000, khz), 50);
 		return ERROR_OK;
 	}
 
@@ -1968,6 +1973,7 @@ static void ch347_write_swd_reg(uint8_t cmd, const uint32_t out)
 	ch347_swd_context.send_buf[ch347_swd_context.send_len++] = parity_u32(out);
 	// 0xA0 +  1 byte(3bit ACK)
 	ch347_swd_context.need_recv_len += (1 + 1);
+	ch347_swd_context.total_swd_clk += 46;
 }
 
 static void ch347_write_spec_seq(const uint8_t *out, uint8_t out_len)
@@ -1979,6 +1985,7 @@ static void ch347_write_spec_seq(const uint8_t *out, uint8_t out_len)
 	for (uint8_t i = 0; i < DIV_ROUND_UP(out_len, 8); i++)
 		ch347_swd_context.send_buf[ch347_swd_context.send_len++] = out ? out[i] : 0x00;
 	ch347_swd_context.need_recv_len += 1; // 0xA1
+	ch347_swd_context.total_swd_clk += out_len;
 }
 
 static void ch347_read_swd_reg(uint8_t cmd)
@@ -1989,6 +1996,7 @@ static void ch347_read_swd_reg(uint8_t cmd)
 	ch347_swd_context.send_buf[ch347_swd_context.send_len++] = cmd;
 	// 0xA2 + 1 byte(3bit ACK) + 4 byte(data) + 1 byte(1bit parity+1bit trn)
 	ch347_swd_context.need_recv_len += 1 + 1 + 4 + 1;
+	ch347_swd_context.total_swd_clk += 46;
 }
 
 static int ch347_swd_switch_out(enum swd_special_seq seq, const uint8_t *out, unsigned int out_len)
@@ -2058,7 +2066,25 @@ static int ch347_swd_run_queue_inner(void);
 
 static int ch347_swd_send_idle(uint32_t ap_delay_clk)
 {
-	struct ch347_swd_io *pswd_io = ch347_get_one_swd_io();
+	bool run_q = false;
+
+	if (ch347_swd_context.sent_cmd_count) {
+		unsigned int expected_total_clk = ch347_swd_context.total_swd_clk + ap_delay_clk;
+		unsigned int expected_send_len = ch347_swd_context.send_len
+							+ 1 + 1 + 1 + DIV_ROUND_UP(ap_delay_clk, 8);
+					// 0xA1 + Len  + rev  + n byte(delay)
+		unsigned int expected_recv_len = ch347_swd_context.need_recv_len + 1;
+					// 0xA1
+		if (expected_total_clk * ch347_swd_context.clk_divisor > CH347_MAX_PROCESSING_US
+				|| expected_send_len > CH347_MAX_SEND_BUF
+				|| expected_recv_len > CH347_MAX_RECV_BUF)
+			run_q = true;
+	}
+
+	struct ch347_swd_io *pswd_io = NULL;
+	if (!run_q)
+		pswd_io = ch347_get_one_swd_io();
+
 	if (!pswd_io) {
 		int retval = ch347_swd_run_queue_inner();
 		if (retval != ERROR_OK)
@@ -2207,6 +2233,7 @@ skip:
 	ch347_swd_context.need_recv_len = CH347_CMD_HEADER;
 	ch347_swd_context.recv_len = 0;
 	ch347_swd_context.sent_cmd_count = 0;
+	ch347_swd_context.total_swd_clk = 0;
 	retval = ch347_swd_context.queued_retval;
 	ch347_swd_context.queued_retval = ERROR_OK;
 
@@ -2230,19 +2257,25 @@ static int ch347_swd_queue_cmd(uint8_t cmd, uint32_t *dst, uint32_t data, uint32
 	if (ap_delay_clk > 255)
 		ap_delay_clk = 255;	// limit imposed by spec. seq. size in one byte
 
-	if (ch347_swd_context.sent_cmd_count >= CH347_MAX_SEND_CMD)	{
-		retval = ch347_swd_run_queue_inner();
-		if (retval != ERROR_OK)
-			return retval;
+	bool run_q = false;
+	if (ch347_swd_context.sent_cmd_count) {
+		unsigned int expected_total_clk = ch347_swd_context.total_swd_clk
+							+ 46 // SWD transaction
+							+ ap_delay_clk
+							+ 8; // 8 idle cycles at the end of queue
+		if (expected_total_clk * ch347_swd_context.clk_divisor > CH347_MAX_PROCESSING_US) {
+			LOG_DEBUG_IO("Expected queue run %u cycles, with this cmd %u",
+						 ch347_swd_context.total_swd_clk, expected_total_clk);
+			run_q = true;
+		} else if (!ch347_chk_buf_size(cmd, ap_delay_clk)) {
+			run_q = true;
+		}
 	}
 
-	if (!ch347_chk_buf_size(cmd, ap_delay_clk))	{
-		retval = ch347_swd_run_queue_inner();
-		if (retval != ERROR_OK)
-			return retval;
-	}
+	struct ch347_swd_io *pswd_io = NULL;
+	if (!run_q)
+		pswd_io = ch347_get_one_swd_io();
 
-	struct ch347_swd_io *pswd_io = ch347_get_one_swd_io();
 	if (!pswd_io) {
 		retval = ch347_swd_run_queue_inner();
 		if (retval != ERROR_OK)
