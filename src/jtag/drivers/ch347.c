@@ -1407,6 +1407,18 @@ static int ch347_open_device(void)
 	} else {
 		ch347.use_bitwise_mode = false;
 	}
+
+	if (swd_mode) {
+		if (ch347_device_descriptor.bcdDevice < 0x441)
+			LOG_WARNING("CH347 vesion older than 4.41 probably does not support SWD transport");
+
+		if (ch347_device_descriptor.bcdDevice == 0x441)
+			LOG_WARNING("If CH347 vesion 4.41 cannot connect or SWD fails often, insert a resistor to SWDIO circuit");
+
+	} else if (ch347_device_descriptor.bcdDevice == 0x241) {
+		LOG_WARNING("CH347 vesion 2.41 has very weird clock timing, may not work with a slower JTAG device");
+	}
+
 	return ERROR_OK;
 }
 
