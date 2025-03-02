@@ -17,9 +17,13 @@ The binaries are built by CI.
 
 |                      | BL602 | BL702 | BL702L | BL808 | BL616 |
 |----------------------|-------|-------|--------|-------|-------|
-| Basic support        |   ✅   |   ✅   |    ✅   |   ❌   |   ❌   |
-| Proper reset         |   ✅   |   ✅   |    ✅   |   ❌   |   ❌   |
+| Basic support        |   ✅   |   ✅   |    ✅   |   ❌   |   🛠️   |
+| Proper reset         |   ✅   |   ✅   |    ✅   |   ❌   |   🛠️   |
 | Flash driver support |   🌊   |   🌊   |    🌊   |   ❌   |   ❌   |
+
+# Work in progress patches
+
+- Basic support & proper reset for BL616 series - branch: `wip/bl616-reset`
 
 # Pending patches for upstreaming
 
