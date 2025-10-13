@@ -17,8 +17,8 @@ The binaries are built by CI.
 
 |                      | BL602 | BL702 | BL702L | BL808 | BL616 |
 |----------------------|-------|-------|--------|-------|-------|
-| Basic support        |   ✅   |   ✅   |    ✅   |   ❌   |   🌊   |
-| Proper reset         |   ✅   |   ✅   |    ✅   |   ❌   |   🌊   |
+| Basic support        |   ✅   |   ✅   |    ✅   |   ❌   |   ✅   |
+| Proper reset         |   ✅   |   ✅   |    ✅   |   ❌   |   ✅   |
 | Flash driver support |   🌊   |   🌊   |    🌊   |   ❌   |   ❌   |
 
 # Work in progress patches
@@ -28,4 +28,3 @@ None
 # Pending patches for upstreaming
 
 - [flash/nor/bl602: add bl602 flash driver](https://review.openocd.org/c/openocd/+/8527) - branch: `feature/bl602-flash-driver`
-- [tcl/target: add Bouffalo Lab BL616 chip series support](https://review.openocd.org/c/openocd/+/9145) - branch: `feature/bl616-tcl`
